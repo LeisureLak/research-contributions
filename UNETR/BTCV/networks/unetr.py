@@ -76,8 +76,8 @@ class UNETR(nn.Module):
         if pos_embed not in ["conv", "perceptron"]:
             raise KeyError(f"Position embedding layer of type {pos_embed} is not supported.")
 
-        self.num_layers = 12
-        self.patch_size = (16, 16, 16)
+        self.num_layers = 12 # ViT层的数量
+        self.patch_size = (16, 16, 16) # transformer的切块大小
         self.feat_size = (
             img_size[0] // self.patch_size[0],
             img_size[1] // self.patch_size[1],
@@ -85,7 +85,7 @@ class UNETR(nn.Module):
         )
         self.hidden_size = hidden_size
         self.classification = False
-        self.vit = ViT(
+        self.vit = ViT( # ViT网络结构
             in_channels=in_channels,
             img_size=img_size,
             patch_size=self.patch_size,
@@ -97,7 +97,7 @@ class UNETR(nn.Module):
             classification=self.classification,
             dropout_rate=dropout_rate,
         )
-        self.encoder1 = UnetrBasicBlock(
+        self.encoder1 = UnetrBasicBlock( # 直连原始特征图的encoder1
             spatial_dims=3,
             in_channels=in_channels,
             out_channels=feature_size,
@@ -106,7 +106,7 @@ class UNETR(nn.Module):
             norm_name=norm_name,
             res_block=res_block,
         )
-        self.encoder2 = UnetrPrUpBlock(
+        self.encoder2 = UnetrPrUpBlock( # ViT的第4层输出经过的encoder2
             spatial_dims=3,
             in_channels=hidden_size,
             out_channels=feature_size * 2,
@@ -118,7 +118,7 @@ class UNETR(nn.Module):
             conv_block=conv_block,
             res_block=res_block,
         )
-        self.encoder3 = UnetrPrUpBlock(
+        self.encoder3 = UnetrPrUpBlock( # ViT的第7层输出经过的encoder3
             spatial_dims=3,
             in_channels=hidden_size,
             out_channels=feature_size * 4,
@@ -130,7 +130,7 @@ class UNETR(nn.Module):
             conv_block=conv_block,
             res_block=res_block,
         )
-        self.encoder4 = UnetrPrUpBlock(
+        self.encoder4 = UnetrPrUpBlock( # ViT的第10层输出经过的encoder4
             spatial_dims=3,
             in_channels=hidden_size,
             out_channels=feature_size * 8,
@@ -142,7 +142,7 @@ class UNETR(nn.Module):
             conv_block=conv_block,
             res_block=res_block,
         )
-        self.decoder5 = UnetrUpBlock(
+        self.decoder5 = UnetrUpBlock( # ViT的第12层输出经过的encoder5
             spatial_dims=3,
             in_channels=hidden_size,
             out_channels=feature_size * 8,
@@ -151,7 +151,7 @@ class UNETR(nn.Module):
             norm_name=norm_name,
             res_block=res_block,
         )
-        self.decoder4 = UnetrUpBlock(
+        self.decoder4 = UnetrUpBlock( # encoder4的输出经过的decoder4，包含反卷积结构
             spatial_dims=3,
             in_channels=feature_size * 8,
             out_channels=feature_size * 4,
@@ -160,7 +160,7 @@ class UNETR(nn.Module):
             norm_name=norm_name,
             res_block=res_block,
         )
-        self.decoder3 = UnetrUpBlock(
+        self.decoder3 = UnetrUpBlock( # encoder3的输出经过的decoder3，包含反卷积结构
             spatial_dims=3,
             in_channels=feature_size * 4,
             out_channels=feature_size * 2,
@@ -169,7 +169,7 @@ class UNETR(nn.Module):
             norm_name=norm_name,
             res_block=res_block,
         )
-        self.decoder2 = UnetrUpBlock(
+        self.decoder2 = UnetrUpBlock( # encoder2的输出经过的decoder2，包含反卷积结构
             spatial_dims=3,
             in_channels=feature_size * 2,
             out_channels=feature_size,
@@ -178,8 +178,10 @@ class UNETR(nn.Module):
             norm_name=norm_name,
             res_block=res_block,
         )
+        # encoder1的输出经过的“decoder1”，这里叫做unet_out_block
         self.out = UnetOutBlock(spatial_dims=3, in_channels=feature_size, out_channels=out_channels)  # type: ignore
 
+    # 将每层ViT输出从b,h,w,d,c变为b,c,h,w,d，方便encoder的卷积运算
     def proj_feat(self, x, hidden_size, feat_size):
         x = x.view(x.size(0), feat_size[0], feat_size[1], feat_size[2], hidden_size)
         x = x.permute(0, 4, 1, 2, 3).contiguous()
@@ -213,18 +215,18 @@ class UNETR(nn.Module):
             self.vit.norm.bias.copy_(weights["state_dict"]["module.transformer.norm.bias"])
 
     def forward(self, x_in):
-        x, hidden_states_out = self.vit(x_in)
-        enc1 = self.encoder1(x_in)
-        x2 = hidden_states_out[3]
-        enc2 = self.encoder2(self.proj_feat(x2, self.hidden_size, self.feat_size))
-        x3 = hidden_states_out[6]
-        enc3 = self.encoder3(self.proj_feat(x3, self.hidden_size, self.feat_size))
-        x4 = hidden_states_out[9]
-        enc4 = self.encoder4(self.proj_feat(x4, self.hidden_size, self.feat_size))
+        x, hidden_states_out = self.vit(x_in) # x为第12层ViT的输出， hidden_states_out为所有ViT层的输出
+        enc1 = self.encoder1(x_in) # 直连原始特征图的encoder1
+        x2 = hidden_states_out[3] # 第4个ViT的输出
+        enc2 = self.encoder2(self.proj_feat(x2, self.hidden_size, self.feat_size)) # ViT的第4层输出经过的encoder2
+        x3 = hidden_states_out[6] # 第7个ViT的输出
+        enc3 = self.encoder3(self.proj_feat(x3, self.hidden_size, self.feat_size)) # ViT的第7层输出经过的encoder3
+        x4 = hidden_states_out[9] # 第10个ViT的输出
+        enc4 = self.encoder4(self.proj_feat(x4, self.hidden_size, self.feat_size)) # ViT的第10层输出经过的encoder4
         dec4 = self.proj_feat(x, self.hidden_size, self.feat_size)
-        dec3 = self.decoder5(dec4, enc4)
-        dec2 = self.decoder4(dec3, enc3)
-        dec1 = self.decoder3(dec2, enc2)
-        out = self.decoder2(dec1, enc1)
-        logits = self.out(out)
+        dec3 = self.decoder5(dec4, enc4) # ViT的第12层输出经过的encoder5
+        dec2 = self.decoder4(dec3, enc3) # encoder4的输出经过的decoder4，包含反卷积结构
+        dec1 = self.decoder3(dec2, enc2) # encoder3的输出经过的decoder3，包含反卷积结构
+        out = self.decoder2(dec1, enc1) # encoder2的输出经过的decoder2，包含反卷积结构
+        logits = self.out(out) # encoder1的输出经过的“decoder1”，这里叫做unet_out_block
         return logits

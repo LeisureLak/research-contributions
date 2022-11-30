@@ -69,42 +69,53 @@ class Sampler(torch.utils.data.Sampler):
 def get_loader(args):
     data_dir = args.data_dir
     datalist_json = os.path.join(data_dir, args.json_list)
-    train_transform = transforms.Compose(
+    train_transform = transforms.Compose( # 定义了训练集的transform并在dataloader中采用
         [
             transforms.LoadImaged(keys=["image", "label"]),
-            transforms.AddChanneld(keys=["image", "label"]),
-            transforms.Orientationd(keys=["image", "label"], axcodes="RAS"),
+            transforms.EnsureChannelFirstd(keys=["image", "label"]),
+            # transforms.AddChanneld(keys=["image", "label"]),
+            transforms.Orientationd(keys=["image", "label"], axcodes="LPI"),
             transforms.Spacingd(
                 keys=["image", "label"], pixdim=(args.space_x, args.space_y, args.space_z), mode=("bilinear", "nearest")
             ),
+            # 对整个矩阵在给定范围内采用特定强度的值缩放
             transforms.ScaleIntensityRanged(
                 keys=["image"], a_min=args.a_min, a_max=args.a_max, b_min=args.b_min, b_max=args.b_max, clip=True
             ),
+            # 裁剪出前景目标（默认的算法select_fn是取大于0的像素部分）
             transforms.CropForegroundd(keys=["image", "label"], source_key="image"),
+
+            # 根据正负像素比例来裁剪图像
             transforms.RandCropByPosNegLabeld(
                 keys=["image", "label"],
                 label_key="label",
-                spatial_size=(args.roi_x, args.roi_y, args.roi_z),
+                spatial_size=(args.roi_x, args.roi_y, args.roi_z), # 裁剪出图像的大小
+                # 这种情况正负像素比例为1:1
                 pos=1,
                 neg=1,
-                num_samples=4,
+                num_samples=4, # 要在这张图上裁剪几个spatial_size大小的图像
                 image_key="image",
-                image_threshold=0,
+                image_threshold=0, # 裁剪出的区域，image_key对应的像素必须大于image_threshold
             ),
+            # 三个轴向上的随机flip
             transforms.RandFlipd(keys=["image", "label"], prob=args.RandFlipd_prob, spatial_axis=0),
             transforms.RandFlipd(keys=["image", "label"], prob=args.RandFlipd_prob, spatial_axis=1),
             transforms.RandFlipd(keys=["image", "label"], prob=args.RandFlipd_prob, spatial_axis=2),
+            # 随机旋转
             transforms.RandRotate90d(keys=["image", "label"], prob=args.RandRotate90d_prob, max_k=3),
+            # 随机缩放像素值
             transforms.RandScaleIntensityd(keys="image", factors=0.1, prob=args.RandScaleIntensityd_prob),
+            # 随机移动像素值
             transforms.RandShiftIntensityd(keys="image", offsets=0.1, prob=args.RandShiftIntensityd_prob),
             transforms.ToTensord(keys=["image", "label"]),
         ]
     )
-    val_transform = transforms.Compose(
+    val_transform = transforms.Compose( # 定义了验证集的transform并在dataloader中采用
         [
             transforms.LoadImaged(keys=["image", "label"]),
-            transforms.AddChanneld(keys=["image", "label"]),
-            transforms.Orientationd(keys=["image", "label"], axcodes="RAS"),
+            transforms.EnsureChannelFirstd(keys=["image", "label"]),
+            # transforms.AddChanneld(keys=["image", "label"]),
+            transforms.Orientationd(keys=["image", "label"], axcodes="LPI"),
             transforms.Spacingd(
                 keys=["image", "label"], pixdim=(args.space_x, args.space_y, args.space_z), mode=("bilinear", "nearest")
             ),
@@ -131,24 +142,24 @@ def get_loader(args):
         )
         loader = test_loader
     else:
-        datalist = load_decathlon_datalist(datalist_json, True, "training", base_dir=data_dir)
+        datalist = load_decathlon_datalist(datalist_json, True, "training", base_dir=data_dir) # 读json文件中的"training"列表，和MSD提供的json文件格式一致
         if args.use_normal_dataset:
             train_ds = data.Dataset(data=datalist, transform=train_transform)
         else:
-            train_ds = data.CacheDataset(
+            train_ds = data.CacheDataset( # 默认走的这里
                 data=datalist, transform=train_transform, cache_num=24, cache_rate=1.0, num_workers=args.workers
             )
-        train_sampler = Sampler(train_ds) if args.distributed else None
+        train_sampler = Sampler(train_ds) if args.distributed else None # 不分布训练就是none
         train_loader = data.DataLoader(
             train_ds,
             batch_size=args.batch_size,
-            shuffle=(train_sampler is None),
+            shuffle=(train_sampler is None), # sampler为none就shuffle
             num_workers=args.workers,
             sampler=train_sampler,
             pin_memory=True,
             persistent_workers=True,
         )
-        val_files = load_decathlon_datalist(datalist_json, True, "validation", base_dir=data_dir)
+        val_files = load_decathlon_datalist(datalist_json, True, "validation", base_dir=data_dir) # 读json文件中的"validation"列表
         val_ds = data.Dataset(data=val_files, transform=val_transform)
         val_sampler = Sampler(val_ds, shuffle=False) if args.distributed else None
         val_loader = data.DataLoader(

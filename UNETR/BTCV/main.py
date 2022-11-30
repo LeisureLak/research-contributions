@@ -64,7 +64,7 @@ parser.add_argument("--num_heads", default=12, type=int, help="number of attenti
 parser.add_argument("--mlp_dim", default=3072, type=int, help="mlp dimention in ViT encoder")
 parser.add_argument("--hidden_size", default=768, type=int, help="hidden size dimention in ViT encoder")
 parser.add_argument("--feature_size", default=16, type=int, help="feature size dimention")
-parser.add_argument("--in_channels", default=1, type=int, help="number of input channels")
+parser.add_argument("--in_channels", default=4, type=int, help="number of input channels")
 parser.add_argument("--out_channels", default=14, type=int, help="number of output channels")
 parser.add_argument("--res_block", action="store_true", help="use residual blocks")
 parser.add_argument("--conv_block", action="store_true", help="use conv blocks")
@@ -76,9 +76,9 @@ parser.add_argument("--b_max", default=1.0, type=float, help="b_max in ScaleInte
 parser.add_argument("--space_x", default=1.5, type=float, help="spacing in x direction")
 parser.add_argument("--space_y", default=1.5, type=float, help="spacing in y direction")
 parser.add_argument("--space_z", default=2.0, type=float, help="spacing in z direction")
-parser.add_argument("--roi_x", default=96, type=int, help="roi size in x direction")
-parser.add_argument("--roi_y", default=96, type=int, help="roi size in y direction")
-parser.add_argument("--roi_z", default=96, type=int, help="roi size in z direction")
+parser.add_argument("--roi_x", default=64, type=int, help="roi size in x direction")
+parser.add_argument("--roi_y", default=64, type=int, help="roi size in y direction")
+parser.add_argument("--roi_z", default=64, type=int, help="roi size in z direction")
 parser.add_argument("--dropout_rate", default=0.0, type=float, help="dropout rate")
 parser.add_argument("--RandFlipd_prob", default=0.2, type=float, help="RandFlipd aug probability")
 parser.add_argument("--RandRotate90d_prob", default=0.2, type=float, help="RandRotate90d aug probability")
@@ -120,13 +120,13 @@ def main_worker(gpu, args):
     torch.cuda.set_device(args.gpu)
     torch.backends.cudnn.benchmark = True
     args.test_mode = False
-    loader = get_loader(args)
+    loader = get_loader(args) # 获得训练集和验证集的loader，loader中包含了图片的预处理
     print(args.rank, " gpu", args.gpu)
     if args.rank == 0:
         print("Batch size is:", args.batch_size, "epochs", args.max_epochs)
     inf_size = [args.roi_x, args.roi_y, args.roi_z]
     pretrained_dir = args.pretrained_dir
-    if (args.model_name is None) or args.model_name == "unetr":
+    if (args.model_name is None) or args.model_name == "unetr": # 默认model_name = "unetr"
         model = UNETR(
             in_channels=args.in_channels,
             out_channels=args.out_channels,
@@ -161,12 +161,12 @@ def main_worker(gpu, args):
     post_label = AsDiscrete(to_onehot=True, n_classes=args.out_channels)
     post_pred = AsDiscrete(argmax=True, to_onehot=True, n_classes=args.out_channels)
     dice_acc = DiceMetric(include_background=True, reduction=MetricReduction.MEAN, get_not_nans=True)
-    model_inferer = partial(
-        sliding_window_inference,
+    model_inferer = partial( # 将sliding_window_inference的参数固定一部分，生成新的函数model_inferer
+        sliding_window_inference, # 滑窗推理
         roi_size=inf_size,
         sw_batch_size=args.sw_batch_size,
         predictor=model,
-        overlap=args.infer_overlap,
+        overlap=args.infer_overlap, # 滑窗按照0.5 overlap
     )
 
     pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -201,7 +201,7 @@ def main_worker(gpu, args):
         )
     if args.optim_name == "adam":
         optimizer = torch.optim.Adam(model.parameters(), lr=args.optim_lr, weight_decay=args.reg_weight)
-    elif args.optim_name == "adamw":
+    elif args.optim_name == "adamw": # unetr默认用的这个
         optimizer = torch.optim.AdamW(model.parameters(), lr=args.optim_lr, weight_decay=args.reg_weight)
     elif args.optim_name == "sgd":
         optimizer = torch.optim.SGD(
